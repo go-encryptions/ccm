@@ -10,13 +10,24 @@ permissions:
   contents: read
 
 env:
-  # Coverage floor. ccm achieves 86.8% of statements. CCM's CBC-MAC length
-  # encoding and CTR counter blocks are big-endian by spec and are built
-  # with explicit big-endian construction (encodeLengthBE / encoding/binary
-  # BigEndian) — no native-cast — so the figure is identical on every target
-  # arch, including big-endian s390x. The RFC 3610 test vectors are the
-  # ground truth and pass byte-for-byte on all six 64-bit arches.
-  COVER_MIN: "86.0"
+  # Coverage floor. CCM's CBC-MAC length encoding and CTR counter blocks are
+  # big-endian by spec and are built with explicit big-endian construction
+  # (encodeLengthBE / encoding/binary BigEndian) — no native-cast — so the
+  # figure is identical on every target arch, including big-endian s390x. The
+  # RFC 3610 test vectors are the ground truth and pass byte-for-byte on all
+  # six 64-bit arches.
+  #
+  # ⛔ It was 86.0, while the other three modules in this organisation — xts,
+  # unixcrypt, zfscrypt — gate on 100.0. The bar had been lowered to the code
+  # instead of the code raised to the bar, and a floor set to whatever a
+  # package happens to achieve is not a floor.
+  #
+  # The 13.2% that was missing was every refusal and every length-encoding
+  # case: the RFC vectors prove the algorithm and touch none of them. One
+  # branch — the 0xff 0xff eight-byte AAD length — needs FOUR GIGABYTES of
+  # additional data to reach through Seal, so it is computed by a function of
+  # its own and covered by a table row rather than deleted.
+  COVER_MIN: "100.0"
 
 jobs:
   # ---- Native runners --------------------------------------------------
