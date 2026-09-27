@@ -152,6 +152,34 @@ func (c *CCM) Open(dst, nonce, ciphertext, additionalData []byte) ([]byte, error
 // computeMAC computes the CBC-MAC over [B_0 || AAD-blocks ||
 // PT-blocks] as specified in RFC 3610 §2.2 and §2.4. Returns the
 // full 16-byte CBC-MAC; callers truncate to tagSize.
+// encodeADLen writes RFC 3610's length prefix for the additional data: two
+// bytes below 2^16-2^8, else 0xff 0xfe and four bytes, else 0xff 0xff and
+// eight.
+//
+// ⛔ It takes a LENGTH rather than the data because the third case needs
+// additional data of 4 GiB, which no test is going to allocate. Left inside
+// computeMAC the branch was correct, required by the format, and permanently
+// unreachable from a test — so a 100% gate could only have been met by
+// deleting it or by lowering the bar. Separating the computation from the
+// bytes it describes costs one function and makes the case a table row.
+func encodeADLen(n uint64) (hdr [10]byte, hdrLen int) {
+	switch {
+	case n < (1<<16 - 1<<8):
+		binary.BigEndian.PutUint16(hdr[:2], uint16(n))
+		return hdr, 2
+	case n < (uint64(1) << 32):
+		hdr[0] = 0xff
+		hdr[1] = 0xfe
+		binary.BigEndian.PutUint32(hdr[2:6], uint32(n))
+		return hdr, 6
+	default:
+		hdr[0] = 0xff
+		hdr[1] = 0xff
+		binary.BigEndian.PutUint64(hdr[2:10], n)
+		return hdr, 10
+	}
+}
+
 func (c *CCM) computeMAC(nonce, plaintext, ad []byte) [blockSize]byte {
 	L := 15 - c.nonceSize
 
@@ -173,23 +201,7 @@ func (c *CCM) computeMAC(nonce, plaintext, ad []byte) [blockSize]byte {
 
 	// AAD-length prefix block(s), if any.
 	if len(ad) > 0 {
-		var hdr [10]byte
-		var hdrLen int
-		switch {
-		case len(ad) < (1<<16 - 1<<8):
-			binary.BigEndian.PutUint16(hdr[:2], uint16(len(ad)))
-			hdrLen = 2
-		case uint64(len(ad)) < (uint64(1) << 32):
-			hdr[0] = 0xff
-			hdr[1] = 0xfe
-			binary.BigEndian.PutUint32(hdr[2:6], uint32(len(ad)))
-			hdrLen = 6
-		default:
-			hdr[0] = 0xff
-			hdr[1] = 0xff
-			binary.BigEndian.PutUint64(hdr[2:10], uint64(len(ad)))
-			hdrLen = 10
-		}
+		hdr, hdrLen := encodeADLen(uint64(len(ad)))
 		c.macAppend(&x, hdr[:hdrLen], ad)
 	}
 
