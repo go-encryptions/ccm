@@ -28,6 +28,7 @@ import (
 	"crypto/subtle"
 	"encoding/binary"
 	"errors"
+	"unsafe"
 )
 
 const blockSize = 16
@@ -74,10 +75,24 @@ func (c *CCM) maxPlaintextLen() uint64 {
 	return (uint64(1) << (8 * L)) - 1
 }
 
+// inexactOverlap reports whether x and y share memory but do not start at the
+// same address: the case cipher.AEAD forbids and crypto/cipher panics on. Exact
+// overlap (dst = plaintext[:0], the in-place form) is allowed. It mirrors
+// crypto/internal/fips140/alias.InexactOverlap, which is not importable.
+func inexactOverlap(x, y []byte) bool {
+	if len(x) == 0 || len(y) == 0 || &x[0] == &y[0] {
+		return false
+	}
+	return uintptr(unsafe.Pointer(&x[0])) <= uintptr(unsafe.Pointer(&y[len(y)-1])) &&
+		uintptr(unsafe.Pointer(&y[0])) <= uintptr(unsafe.Pointer(&x[len(x)-1]))
+}
+
 // Seal encrypts and authenticates plaintext, authenticates
 // additionalData and appends the result to dst, returning the
 // updated slice. The nonce must be NonceSize() bytes long and must
-// be unique for any particular key.
+// be unique for any particular key. Seal panics if dst and plaintext
+// overlap inexactly (they may be the same slice start, not an offset
+// of one another), as crypto/cipher does.
 func (c *CCM) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
 	if len(nonce) != c.nonceSize {
 		panic("ccm: incorrect nonce length")
@@ -89,6 +104,9 @@ func (c *CCM) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
 	tag := c.computeMAC(nonce, plaintext, additionalData)
 
 	ret, out := sliceForAppend(dst, len(plaintext)+c.tagSize)
+	if inexactOverlap(out[:len(plaintext)], plaintext) {
+		panic("ccm: invalid buffer overlap of output and input")
+	}
 
 	// CTR-encrypt plaintext starting at counter = 1.
 	c.ctrXOR(out[:len(plaintext)], nonce, 1, plaintext)
