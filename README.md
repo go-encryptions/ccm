@@ -33,7 +33,7 @@ pt, err := aead.Open(nil, nonce, ct, additionalData) // err != nil ⇒ authentic
 | tag size | M | `{4, 6, 8, 10, 12, 14, 16}` | even, 4…16 |
 | plaintext | P | `len(P) ≤ 2^(8L) − 1` | with N=12 ⇒ up to 2^24 bytes (one ZFS block) |
 
-`NewCCM` validates all three and returns an error on out-of-range values; `Seal` panics on a wrong-length nonce or oversized plaintext, matching the `cipher.AEAD` contract.
+`NewCCM` validates all three and returns an error on out-of-range values; `Seal` panics on a wrong-length nonce or oversized plaintext, matching the `cipher.AEAD` contract. It also panics when `dst` and `plaintext` overlap inexactly, as `crypto/cipher` does; `Seal(buf[:0], nonce, buf, ad)` (exact overlap, in place) is allowed.
 
 ## Security notes
 
